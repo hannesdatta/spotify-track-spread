@@ -65,5 +65,5 @@ Open your command line tool:
 └── src
     ├── analysis
     ├── data-preparation
-    └── 
+    └── paper
 ```
