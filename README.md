@@ -1,30 +1,6 @@
 # spotify-track-spread
 
-## Workflow for 
 > Fenne Schoot, 2019, "Analyzing Spotify's network of playlists: how tracks spread through playlists on Spotify", Tilburg University Thesis.
-
-1) `01_data_prep.Rmd`
-Reads raw data from parsed_playlists.csv,
-cleans and prepares data.
-
-2) `02_descriptives.Rmd`
-Generates descriptive statistics from data.csv
-
-3) `03_calculate_influence.Rmd`
-Uses data.csv to calculate the influence degrees of all
-playlist combinations for which the influence degree is not
-equal to 0.
-
-4) `04_analysis_prep.R`
-Combines all playlists in the data to make playlist pairs.
- 
-5) `05_analysis_pairs.R`
-Adds the calculated influence degrees to the playlist pairs,
-and 0 to the playlist pairs for which the influence degree
-is 0.
-
-6) `06_analysis.Rmd`
-Prepares and runs ANCOVA.
 
 
 ## Dependencies
