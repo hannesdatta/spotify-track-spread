@@ -44,3 +44,26 @@ Open your command line tool:
   - if not, type `cd yourpath/spotify-track-spread` to change your directory to `spotify-track-spread`
 
 - Type `make` in the command line.
+
+## Directory Structure
+
+```txt
+├── data
+├── gen
+│   ├── analysis
+│   │   ├── input
+│   │   ├── output
+│   │   └── temp
+│   ├── data-preparation
+│   │   ├── input
+│   │   ├── output
+│   │   └── temp
+│   └── paper
+│       ├── input
+│       ├── output
+│       └── temp
+└── src
+    ├── analysis
+    ├── data-preparation
+    └── 
+```
