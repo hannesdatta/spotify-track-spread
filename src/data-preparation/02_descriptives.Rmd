@@ -1,0 +1,162 @@
+---
+title: "descriptives"
+output: html_document
+---
+
+Install Packages
+```{r}
+list.of.packages <- c("data.table", "dplyr", "tidyr", "ggplot2", "sqldf")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+```
+
+Load packages
+```{r}
+library("data.table")
+library("ggplot2")
+library("dplyr")
+library("sqldf")
+library("tidyr")
+```
+
+Load data
+```{r}
+data <- read.csv("../../gen/data-preparation/input/data.csv", header = TRUE)
+```
+
+## 4.3 Descriptive statistics
+
+### 4.3.1 Tracks
+
+Total number of playlist additions
+```{r}
+# Total number of playlist additions in data
+nrow(data)
+
+# Number of tracks in data
+distinct_tracks <- data %>% distinct(track_id, .keep_all=TRUE)
+nrow(distinct_tracks)
+```
+
+Number of playlist additions per track
+```{r}
+data %>% count(track_id) %>% summarise(min(n), max(n), mean(n), sd(n))
+
+# Plot distribution of number of playlist additions per track.
+data %>% count(track_id) %>% filter(n<101) %>% ggplot(aes(x=n)) +
+  geom_histogram(binwidth=10) + xlab("Number of playlist additions per track") + 
+  ylab("Number of tracks")
+
+# Percentage of tracks added to more than 20 playlists
+data %>% count(track_id) %>% filter(n>10) %>% nrow()/nrow(distinct_tracks)
+```
+
+Most listed tracks
+```{r}
+data %>% filter(!is.na(first_artistname)) %>% count(track_id, track_name, first_artistname, all_artistname) %>% 
+  arrange(desc(n))
+```
+
+Major label tracks and indie label tracks
+```{r}
+# Number and percentage of tracks in data
+distinct_tracks %>% count(major_label) %>% mutate(perc = n/nrow(distinct_tracks))
+data %>% count(major_label)
+
+# Number of playlist additions per track
+data %>% group_by(major_label) %>% count(track_id) %>% summarise(mean(n), sd(n), min(n), max(n))
+```
+
+### 4.3.1 Playlists
+
+Number of distinct playlists in data
+```{r}
+distinct_playlists <- data %>% distinct(pl_id, .keep_all=TRUE)
+nrow(distinct_playlists)
+
+# Additions per playlist
+data %>% count(pl_id) %>% summarise(mean(n), sd(n), min(n), max(n))
+```
+
+Plot number of playlists per genre
+```{r}
+genre_counts <- distinct_playlists %>% summarise(pop=sum(pop), edm=sum(edm), tropicalhouse=sum(tropicalhouse), dancepop=sum(dancepop), rap=sum(rap), modernrock=sum(modernrock), electrohouse=sum(electrohouse), poprap=sum(poprap), 
+    indierb=sum(indierb), indietronica=sum(indietronica), indiefolk=sum(indiefolk), postteenpop=sum(postteenpop), indierock=sum(indierock), trapmusic=sum(trapmusic), house=sum(house), latin=sum(latin), hiphop=sum(hiphop), indiepop=sum(indiepop), rock=sum(rock),  reggaeton=sum(reggaeton))
+
+genre_counts_2 <- data.table(matrix(ncol=2, nrow=20))
+colnames(genre_counts_2) <- c("genre", "frequency")
+genre_counts_2$genre <- c("Pop", "EDM", "Tropical house", "Dance pop", 'Rap', 'Modern rock', 'Electro house', 'Pop rap', 'Indie R&B', 'Indietronica', 'Indie folk', 'Post-teen pop', 'Indie rock', 'Trap music', 'House', 'Latin', 'Hip hop', 'Indie pop', 'Rock', 'Reggaeton')
+for (row in 1:nrow(genre_counts_2)) {
+  genre_counts_2$frequency[row] <- genre_counts[row]
+}
+genre_counts_2$frequency <- as.numeric(genre_counts_2$frequency)
+
+genre_counts_2 %>% ggplot(aes(x=reorder(genre, -frequency), y=frequency)) +
+  geom_bar(stat="identity") + ylab("Frequency") + 
+  geom_text(stat='identity', aes(label=frequency), vjust=-.5, size = 3.5) +
+  theme(axis.text.x = element_text(angle = 90)) + xlab("Genre") + 
+  coord_cartesian(ylim=c(0,37000))
+```
+
+Playlist owners
+```{r}
+distinct_playlists %>% count(owner) %>% mutate(perc=n/nrow(distinct_playlists))
+
+data %>% count(owner)
+data %>% group_by(owner) %>% count(pl_id) %>% summarise(mean(n), sd(n))
+```
+
+Playlist followers
+```{r}
+# mean and max n pl followers:
+distinct_playlists %>% summarise(mean(pl_followers), sd(pl_followers), max(pl_followers))
+
+distinct_playlists %>% group_by(owner) %>% summarise(mean(pl_followers), sd(pl_followers), median(pl_followers),
+                                                     min(pl_followers), max(pl_followers))
+distinct_playlists %>% group_by(owner) %>% summarise(foll=sum(pl_followers)) %>% mutate(perc=foll/sum(foll))
+
+```
+
+
+Plot frequency of major vs. indie additions per playlist owner
+```{r}
+# Major label
+data %>% filter(owner=="Major label") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2)) %>% 
+  ggplot(aes(x=major_label, y = perc)) +
+  geom_bar(stat="identity") +
+  xlab("Track label") + ylab("Percentage of playlist additions") +
+  geom_text(stat="identity", aes(label=perc), vjust=-.5, size = 3.5) +
+  ggtitle("Major label playlists") +
+  coord_cartesian(ylim=c(0,100))
+
+# Spotify
+data %>% filter(owner=="Spotify") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2)) %>% 
+  ggplot(aes(x=major_label, y = perc)) +
+  geom_bar(stat="identity") +
+  xlab("Track label") + ylab("Percentage of playlist additions") +
+  geom_text(stat="identity", aes(label=perc), vjust=-.5, size = 3.5) +
+  ggtitle("Official Spotify playlists") +
+  coord_cartesian(ylim=c(0,100))
+
+data %>% filter(owner=="Spotify", pop_above_median=="Unpopular") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2))
+data %>% filter(owner=="Spotify", pop_above_median=="Popular") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2))
+
+# Independent
+data %>% filter(owner=="Other") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2)) %>% 
+  ggplot(aes(x=major_label, y = perc)) +
+  geom_bar(stat="identity") +
+  xlab("Track label") + ylab("Percentage of playlist additions") +
+  geom_text(stat="identity", aes(label=perc), vjust=-.5, size = 3.5) +
+  ggtitle("Independent playlists") +
+  coord_cartesian(ylim=c(0,100))
+
+data %>% filter(owner=="Other", pop_above_median=="Unpopular") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2))
+data %>% filter(owner=="Other", pop_above_median=="Popular") %>% 
+  count(major_label) %>% mutate(perc=round(n/sum(n)*100, digits=2))
+```

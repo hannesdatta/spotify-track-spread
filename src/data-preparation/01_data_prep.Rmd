@@ -1,0 +1,284 @@
+---
+title: "data_prep"
+output: html_document
+---
+
+# Set up
+Install Packages
+```{r}
+list.of.packages <- c("data.table", "dplyr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+```
+
+Load packages
+```{r warning=FALSE}
+library("data.table")
+library("dplyr")
+```
+
+Load data
+```{r}
+data <- fread('../../data/parsed_playlists.csv', sep='\t', quote = '')
+nrow1 <- nrow(data)
+nrow1
+```
+
+# 4. Data
+## 4.1 Sample collection
+
+Remove duplicate rows
+```{r}
+data <- unique(data)
+nrow2 <- nrow(data)
+nrow2
+
+#Number of rows removed because they were duplicates:
+n_duplicates_removed <- nrow1-nrow2
+print(n_duplicates_removed)
+```
+
+Change values to dates/numeric
+```{r warning=FALSE}
+data[, added_at := as.Date(added_at)]
+data[removed_at == "None", removed_at := NA]
+data[, removed_at := as.Date(removed_at)]
+data[, release_date_first := as.Date(release_date_first)]
+data[, release_date_all := as.Date(release_date_all)]
+
+data[, song_duration_ms := as.numeric(song_duration_ms)]
+data[, track_spotify_popularity := as.numeric(track_spotify_popularity)]
+data[, pl_followers := as.numeric(pl_followers)]
+data[, num_track_in_pl := as.numeric(num_track_in_pl)]
+data[, pl_fdiff_month := as.numeric(pl_fdiff_month)]
+data[, pl_fdiff_week := as.numeric(pl_fdiff_week)]
+data[, pl_monthly_listeners := as.numeric(pl_monthly_listeners)]
+data[, pl_active_ratio := as.numeric(pl_active_ratio)]
+
+```
+
+Empty, "None", "," cells to NA
+```{r}
+data$pl_owner <- ifelse(data$pl_owner=="", NA, data$pl_owner)
+data$album_id[data$album_id=="None"] <- NA
+data$album_name[data$album_name==""] <- NA
+data$album_name[data$album_name==","] <- NA
+data$first_artistname[data$first_artistname==""] <- NA
+data$pl_tags_genre[data$pl_tags_genre==""] <- NA
+data$pl_name[data$pl_name==""] <- NA
+data$pl_name[data$pl_name==","] <- NA
+
+#Change missing album ids to album names
+data$album_id <- ifelse(is.na(data$album_id), data$album_name, data$album_id)
+```
+
+## 4.2 Data preparation and variable operationalization
+### 4.2.1 Tracks
+
+Track name "Home":
+```{r}
+data %>% filter(track_name=="home") %>% distinct(track_id, .keep_all=T) %>% 
+  distinct(artist_id) %>% nrow()
+```
+
+
+Only keep tracks with release dates in 2017
+(we collected data for only these tracks)
+```{r}
+tracks_before <- data %>% distinct(track_id) %>% nrow()
+data <- data %>% filter(release_date_first>"2016-12-31" & release_date_first<"2018-01-01")
+
+# N tracks removed that were not released in 2017 or
+# for which release date was unknown
+tracks_after <- data %>% distinct(track_id) %>% nrow()
+n_removed <- tracks_before-tracks_after
+```
+
+Indicate whether a track was released by a major label or an indie label
+```{r}
+
+labels_warner = c('Warner Music' = 'warner[ ]music|warner[ ]home|warner[ ]special|warner[ ]strategic|warner[.]esp',
+			       'Asylum Records' = 'asylum[ ]records|([|]|^)atlantic[ ]records|atlantic[ ]|([|]|^)atlantic([|]|$)|elektra[ ]records|([|]|^)elektra([|]|$)|warner[ ]music[ ]nashville|warner[ ]bros|elektra[ ]nashville',
+			       'Big Beats Records' = 'big[ ]beat[ ]|([|]|^)big beat([|]|$)',
+             'Canvasback Music' = 'canvasback',
+             'Parlophone Label Group' = 'parlophone|FFR[ ]records|([|]|^)FFRR([|]|$)|virgin[ ]classics|emi[ ]classics|[ ]erato[ ]|([|]|^)erato|warner[ ]classics',
+             'Reprise Records' = '([|]|^)reprise[ ]',
+             'Fueled By Ramen' = 'Fueled[ ]by[ ]ramen',
+             'Nonesuch Records' = 'nonesuch[ ]records|([|]|^)nonesuch([|]|$)',
+             'Rhino Entertainment' = 'rhino[ ]entertainment|([|]|^)rhino',
+             'Roadrunner Records' = '([|]|^)roadrunner',
+             'Sire Records' = '([|]|^)sire[ ]records|([|]|^)sire[ ]|([|]|^)sire[ ]([|]|$)',
+             'East West' = 'east[ ]west|eastwest',
+             'Warner (all combined)' = '([|]|^)warner|[(]warner[)]|asylum[ ]records|big[ ]beat[ ]records|canvasback[ ]music|parlophone[ ]label[ ]group|reprise[ ]records|fueled[ ]by[ ]ramen|nonesuch[ ]records|rhino[ ]entertainment|roadrunner[ ]records|sire[ ]records|east[ ]west')
+
+labels_universal = c('Universal Music Group' = '([|]|^)universal|([|]|^)universal[ ]music[ ]japan|([|]|^)universal[ ]sigma|([|]|^)universal[ ]international|([|]|^)geneon[ ]universal|nbcuniversal|universal[ ]licensing[ ]music|([|]|^)universal[ ]music[ ]|universal[ ]music[ ]spain|universal[ ]m..z.k|([|]|^)universal records|([|]|^)universal[ ]records[ ]|([|]|^)universal[ ]republic[ ]records',
+					 'Capital Music Group' = 'capitol|astralwerks|blue[ ]{0,2}note|([|]|^)caroline[ ]|deep[ ]{0,2}well|([|]|^)harvest|([|]|^)metamorphosis|motown|quality[ ]{0,2}control|([|]|^)virgin[ ]|([|]|^)virgin([|]|$)',
+                     'Decca Classics' = 'decca|ecm([ ]|$|[|])|([|]|^)mercury|([|]|^)mercury[ ]classics|([|]|^)mercury[ ]records',
+                     'Def Jam Recordings' = 'def[ ]{0,2}jam|artium|g.o.o.d|([|]|^)good([|]|$)|good[ ]records',
+                     'Deutsche Grammophon' = 'deutsche[ ]grammophon|grammophon',
+                     'Eagle Rock Entertainment' = 'eagle[ ]rock|eagle[ ]records', 
+                     'EMI' = 'emi[ ]|([|]|^)emi|([|]|^)emi[ ]music|emi[-]',
+                     'Interscope' = 'interscope|geffen|A[&]M|([|]|^)222([|]|$)|aftermath|dreamville|insomniac[ ]|kidinakorner|shady[ ]{0,2}records|([|]|^)shady',
+                     'Island Records' = '([|]|^)island[ ]records|4th & Broadway|universal[ ]island|([|]|^)island[ ]|([|]|^)island([|]|$)',
+                     'Polydor Records' = '([|]|^)polydor[ ]|([|]|^)polydor[ ]([|]|$)|([|]|^)fiction[ ]records|([|]|^)fiction([|]|$)|polydor', 
+                     'Republic Records' = '([|]|^)republic[ ]records|universal[ ]republic|([|]|^)american[ ]recordings|([|]|^)Brushfire[ ]records|([|]|^)casablanca[ ]records|([|]|^)cash[ ]money[ ]records|john[ ]varvatos|([|]|^)lava[ ]records|lightworkers|([|]|^)the[ ]voice', 
+					           'Republic Records 2' = '([|]|^)republic[ ]records|([|]|^)american[ ]recordings|([|]|^)Brushfire[ ]records|([|]|^)casablanca[ ]records|([|]|^)cash[ ]money[ ]records|john[ ]varvatos|([|]|^)lava[ ]records|lightworkers|([|]|^)the[ ]voice', 
+					           'Universal Music Enterprises' = '([|]|^)universal[ ]|([|]|^)universal([|]|$)|T[-]{0,1}boy',
+                     'Universal Music Group Nashville' = 'capitol[ ]{0,1}records[ ]{0,1}nashville|emi[ ]{0,1}records[ ]{0,1}nashville|mca[ ]{0,1}nashville|mercury[ ]{0,1}nashville|show[-]{0,1}dog',
+                     'Universal Music Latin Entertainment' = 'capitol[ ]{0,1}latin|disa[ ]{0,1}records|fonovisa|machete[ ]{0,1}music|universal[ ]{0,1}music[ ]{0,1}latino',
+                     'Verve Label Group' = 'verve[ ]label[ ]group|verve[ ]{0,1}records|decca[ ]{0,1}gold|universal[ ]{0,1}music[ ]{0,1}classics|decca[ ]{0,1}broadway|verve[ ]{0,1}group|([|]|&)verve([|]|$)|verve[ ]{0,1}music[ ]{0,1}group', 
+                     'PM:AM Recordings' = 'PM[:]AM|pm[ ]{0,1}am',
+                     'Spinefarm Records' = 'spinefarm',
+                     'SpinnUp' = 'SpinnUp',
+                     'Disques Barclay' = 'disques[ ]{0,1}barclay|([|]|^)barclay',
+                     'Varese Sarabande' = 'var.se',
+					 'Universal Music (combined)' = 'varese[ ]sarabande|disques[ ]barclay|spinnup|spinefarm[ ]records|pm:am[ ]recordings|verve[ ]label[ ]group|universal[ ]music[ ]latin[ ]entertainment|universal[ ]music[ ]group[ ]nashville|universal[ ]music[ ]enterprises|republic[ ]records|polydor[ ]records|island[ ]records|interscope|emi|eagle[ ]rock[ ]entertainment|deutsche[ ]grammophon|def[ ]jam[ ]recordings|decca[ ]classics|capitol[ ]music[ ]group|universal[ ]music[ ]group')
+
+labels_sony = c('Columbia Records'='CBS[ ]columbia|([|]|^)columbia|hypnotize[ ]minds',
+                'Columbia Records 2' = 'dreamville[ ]entertainment|small.*giant|startime[ ]international|blue[ ]propaganda', 
+                'RCA Records' = '([|]|^)rca|([|]|^)bystorm.*entertainment|([|]|^)nappy[ ]boy|([|]|^)j[ ]records', 
+                'Epic Records' = '([|]|^)epic|([|]|^)battery|([|]|^)freebandz|([|]|^)bad[ ]{0,1}boy[ ]records|([|]|^)volcano|vested[ ]in[ ]culture', 
+                'Sony Music Nashville' = 'sony[ ]music|([|]|^)arista|([|]|^)columbia[ ]nashville|rca[ ]records[ ]nashville', 
+                'Zomba Music Group' = '([|]|^)zomba|([|]|^)jive[ ]records|([|]|^)verity|([|]|^)silvertone',
+                'RED Music Distribution' = '([|]|^)red[ ]music[ ]|odd[ ]future|([|]|^)red[ ]ink|cinematic[ ]music|([|]|^)reach[ ]records', 
+                'Legacy Recordings' = '([|]|^)legacy[ ]recordings|([|]|^)laface', 
+                'Sony Music Latin' = 'sony.*latin',
+                'Ariola Records' = 'ariola',
+                'Sony Masterworks' = 'sony[ ]masterworks|([|]|^)bluebird|([|]|^)okeh|portrait[ ]records|([|]|^)portrait|([|]|^)arte[ ]nova|sony[ ]classical|flying[ ]buddha|([|]|^)masterworks', 
+                'Provident Label Group' = '([|]|^)provident|essential[ ]records|flicker[ ]records|beach[ ]street|reunion[ ]records|essential[ ]worship',
+                'Century Media Records' = 'century[ ]media|([|]|^)century record|people[ ]like[ ]you|insideout[ ]music|superball[ ]music',
+				'Sony Music Entertainment' = 'Sony[ ]BMG|([|]|^)BMG|columbia[ ]music|sony[ ]music|Columbia[ ]records|RCA[ ]Records|Epic[ ]Records|Sony[ ]Music[ ]Nashville|Zomba[ ]Music[ ]Group|RED[ ]Music[ ]Distribution[ ]|Legacy[ ]Recordings|Sony[ ]Music[ ]Latin|Ariola[ ]Records|Sony[ ]Masterworks|Provident[ ]Label[ ]Group|Century[ ]Media[ ]Records')
+
+label_iter=c(labels_warner, labels_universal, labels_sony)
+
+data <- data.table(data)
+
+data[, major_label:=0]
+
+for (lbl in label_iter) {
+  data[grepl(lbl, album_label, ignore.case=TRUE), major_label:=1]
+}
+
+data$album_label[data$album_label=="" | data$album_label==","] <- NA
+data$major_label[is.na(data$album_label)] <- NA
+
+data$major_label[data$major_label==1] <- "Major label"
+data$major_label[data$major_label==0] <- "Indie label"
+
+```
+
+### 4.2.2 Playlists
+
+Categorize playlist owners
+```{r}
+data <- data.table(data)
+official_pl <- filter(data, pl_official==TRUE)
+data[, owner:=0]
+data$owner[data$pl_official==TRUE] <- "Spotify"
+data[grepl("filtr", pl_owner, ignore.case=TRUE), owner:="Major label"]
+data[grepl("topsify", pl_owner, ignore.case=TRUE), owner:="Major label"]
+data[grepl("digster", pl_owner, ignore.case=TRUE), owner:="Major label"]
+data$owner[data$owner==0] <- "Other"
+
+data[, cur_spotify:=0]
+data[, cur_filtr:=0]
+data[, cur_topsify:=0]
+data[, cur_digster:=0]
+data$cur_spotify[data$pl_official==TRUE] <- 1
+data[grepl("filtr", pl_owner, ignore.case=TRUE), cur_filtr:=1]
+data[grepl("topsify", pl_owner, ignore.case=TRUE), cur_topsify:=1]
+data[grepl("digster", pl_owner, ignore.case=TRUE), cur_digster:=1]
+
+```
+
+(4.2.1:) Change all album labels that appear in major label playlists to major label
+```{r}
+# N albums now marked as indie label added to major label pls
+data %>% filter(owner=="Major label" & major_label=="Indie label") %>% 
+  distinct(track_id) %>% nrow()
+
+labels_in_major_pl <- data %>% filter(owner=="Major label") %>% distinct(album_label) %>% 
+  pull(album_label)
+
+data$major_label[data$album_label %in% labels_in_major_pl] <- "Major label"
+```
+
+Playlist genre dummy variables
+```{R genres}
+no_distinct_playlists <- distinct(data, pl_id, .keep_all=TRUE)
+
+all_tags = strsplit(no_distinct_playlists$pl_tags_genre, ',')
+# check out the data
+all_tags[3] # or 2, or 3...
+
+freq_table = unlist(all_tags)
+freq_table = table(freq_table)
+
+freq_table = freq_table[order(freq_table, decreasing=T)]
+
+top20 = names(freq_table[1:20])
+
+data <- data.table(data)
+
+for (genre in top20) {
+  newvariable = gsub('[ ]|[&]|[-]','',genre)
+  data[, paste(newvariable):=0]
+  data[grepl(genre, pl_tags_genre), paste(newvariable):=1]
+  
+}
+```
+
+Playlists with unknown followers
+```{r}
+# N playlists for which n followers unknown 
+data %>% distinct(pl_id, .keep_all=TRUE) %>% filter(is.na(pl_followers)) %>% nrow()
+
+data <- data %>% filter(!is.na(pl_followers))
+```
+
+Remove tracks with playlist addition dates before their release date
+```{r}
+remove_tracks <- data %>% filter(added_at<release_date_first) %>% 
+  distinct(track_id) %>% pull(track_id)
+length(remove_tracks)
+data <- data %>% filter(!track_id %in% remove_tracks)
+```
+
+If a track is added to the same pl multiple times, keep only first addition
+```{r}
+data <- data %>% arrange(track_id, added_at)
+data <- data %>% group_by(track_id) %>% distinct(pl_id, .keep_all=TRUE)
+data <- data %>% ungroup()
+
+nrow(data)
+```
+
+Playlist popularity above median = 1, below or at median = 0
+```{r}
+data$pop_above_median <- "Popular"
+median_followers <- data %>% distinct(pl_id, .keep_all=T) %>% 
+  filter(!is.na(pl_followers)) %>% group_by(owner) %>% 
+  summarise(median=median(pl_followers))
+spotify_median <- median_followers %>% filter(owner=="Spotify") %>% pull(median)
+major_median <- median_followers %>% filter(owner=="Major label") %>% pull(median)
+other_median <- median_followers %>% filter(owner=="Other") %>% pull(median)
+
+data$pop_above_median[data$owner=="Spotify" & data$pl_followers<spotify_median] <- "Unpopular"
+data$pop_above_median[data$owner=="Major label" & data$pl_followers<major_median] <- "Unpopular"
+data$pop_above_median[data$owner=="Other" & data$pl_followers<other_median] <- "Unpopular"
+```
+
+t_add
+```{r}
+first_adds <- data %>% group_by(track_id) %>% summarise(track_first_add = min(added_at))
+
+data <- data %>% left_join(first_adds, by=c("track_id"="track_id"))
+
+data <- data %>% mutate(t_add=added_at-track_first_add)
+```
+
+Save as csv
+```{r}
+write.csv(data, "../../gen/data-preparation/input/data.csv", row.names=FALSE)
+```
+

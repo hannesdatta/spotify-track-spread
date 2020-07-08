@@ -1,0 +1,144 @@
+---
+title: Analysis
+output: html_document
+---
+
+# Preparation ------------------------------------------------------------------
+Install Packages
+```{r}
+list.of.packages <- c("data.table", "dplyr", "ggplot2", "rmarkdown", "car")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+```
+
+Load packages
+
+```{r}
+library("rmarkdown")
+library("data.table")
+library("ggplot2")
+library("dplyr")
+library("car")
+
+# args = commandArgs(trailingOnly=TRUE)
+# samplesize = as.numeric(args[1])
+samplesize = 1000
+```
+
+Load data
+```{r}
+df <- fread(paste0("../../gen/analysis/temp/analysis_input_", samplesize,".csv"), header = TRUE)
+```
+
+Change column names and column classes
+```{r}
+colnames(df)[1:2] <- c("j", "k")
+colnames(df)[10] <- "j_popularity"
+colnames(df)[12] <- "k_popularity"
+
+df$j_owner[df$j_owner=="Other"] <- "Independent"
+df$k_owner[df$k_owner=="Other"] <- "Independent"
+
+#change typo in unpouplar
+df$j_popularity[df$j_popularity=="Unpouplar"] <- "Unpopular"
+df$k_popularity[df$k_popularity=="Unpouplar"] <- "Unpopular"
+
+#change variables to factors
+df$j_owner <- factor(df$j_owner)
+df$k_owner <- factor(df$k_owner)
+df$j_popularity <- factor(df$j_popularity)
+df$k_popularity <- factor(df$k_popularity)
+```
+
+# Assumptions-------------------------------------------------------------------
+
+4-way ANCOVA (treatment variables: j_owner, j_popularity, k_owner, k_popularity,
+covariates: N_j, N_k)
+
+Check number of observations per level of treatment variable
+```{r}
+df %>% count(j_owner, j_popularity, k_owner, k_popularity) %>% print(n=36)
+```
+
+Correlation between covariates and dependent variable?
+```{r}
+cor.test(df$F_jk,df$N_j, test = "pearson")
+cor.test(df$F_jk, df$N_k, test="pearson")
+# No correlation
+
+# Transform variables:
+df <- df %>% mutate(log_F_jk = log(F_jk+0.01))
+df <- df %>% mutate(log_N_j = log(N_j+0.01))
+df <- df %>% mutate(log_N_k = log(N_k+0.01))
+
+# Test correlation again:
+cor.test(df$log_F_jk, df$log_N_j, test="pearson")
+cor.test(df$log_F_jk, df$log_N_k, test="pearson")
+```
+
+Homoscedasticity?
+```{r}
+leveneTest(F_jk ~ j_owner*j_popularity*k_owner*k_popularity, data=df)
+leveneTest(log_F_jk ~ j_owner*j_popularity*k_owner*k_popularity, data=df)
+```
+
+# ANOVA ------------------------------------------------------------------------
+
+```{r}
+anova <- aov(log_F_jk ~ j_owner+k_owner+j_owner:j_popularity+k_owner:k_popularity+
+    j_owner:k_owner+
+    j_owner:j_popularity:k_owner+j_owner:k_owner:k_popularity+
+    j_owner:j_popularity:k_owner:k_popularity+
+    log_N_j + log_N_k, data = df)
+summary(anova)
+Tukey_1 <- TukeyHSD(anova, which=c("j_owner", "k_owner", "j_owner:j_popularity",
+  "k_owner:k_popularity", "j_owner:k_owner", "j_owner:k_owner:j_popularity", 
+  "j_owner:k_owner:k_popularity"))
+print(Tukey_1)
+
+Tukey_2 <- TukeyHSD(anova, which="j_owner:k_owner:j_popularity:k_popularity")
+print(Tukey_2)
+
+```
+
+Means
+```{r}
+mean_j_owner <- df %>% group_by(j_owner) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_owner)
+
+mean_k_owner <- df %>% group_by(k_owner) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_k_owner)
+
+mean_j_pop <- df %>% group_by(j_popularity) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_pop)
+
+mean_k_pop <- df %>% group_by(k_popularity) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_k_pop)
+
+mean_j_owner_k_owner <- df %>% group_by(j_owner, k_owner) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_owner_k_owner)
+
+mean_j_owner_j_pop <- df %>% group_by(j_owner, j_popularity) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_owner_j_pop)
+
+mean_k_owner_k_pop <- df %>% group_by(k_owner, k_popularity) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_k_owner_k_pop)
+
+mean_j_owner_j_pop_k_owner <- df %>% group_by(j_owner, j_popularity, k_owner) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_owner_j_pop_k_owner)
+
+mean_j_owner_k_owner_k_pop <- df %>% group_by(j_owner, k_owner, k_popularity) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_owner_k_owner_k_pop)
+
+mean_j_owner_j_pop_k_owner_k_pop <- df %>% group_by(j_owner, j_popularity, k_owner, k_popularity) %>% summarise(n(), mean(F_jk), sd(F_jk))
+print(mean_j_owner_j_pop_k_owner_k_pop, n=36)
+```
+
+
+```{r}
+save(Tukey_1, Tukey_2, mean_j_owner, mean_k_owner, mean_j_pop, mean_k_pop,
+  mean_j_owner_k_owner, mean_j_owner_j_pop, mean_k_owner_k_pop,
+  mean_j_owner_j_pop_k_owner, mean_j_owner_k_owner_k_pop, 
+  mean_j_owner_j_pop_k_owner_k_pop, file = paste0("../../gen/analysis/output/workspace_", samplesize,".RData"))
+```
+

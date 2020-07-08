@@ -1,0 +1,108 @@
+---
+title: "calculate_influence"
+output: html_document
+---
+Install Packages
+```{r}
+list.of.packages <- c("data.table", "dplyr", "tidyr", "reshape", "reshape2")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+```
+
+Load packages
+```{r}
+library("data.table")
+library("dplyr")
+library("tidyr")
+library("reshape")
+library("reshape2")
+```
+
+Load csv
+```{r}
+data <- fread("../../gen/data-preparation/input/data.csv", header = TRUE, 
+  colClasses=c("added_at"="Date", "pl_id"="character"))
+```
+
+# Calculate influence degrees F(j,k) -------------------------------------------
+
+```{r}
+# Count the number of tracks that are added to each playlist
+playlists <- data %>% group_by(pl_id) %>% summarise(N=n()) %>% data.frame()
+
+# Make list of all pl ids
+pl_ids <- playlists %>% pull(pl_id)
+```
+
+Function to make, for every playlist, a list of all playlists each track was
+added to before being added to that playlist.
+```{r}
+all_before <- function(k) {
+  
+  # Make a list of all tracks that are added to playlist k (tracks_k)
+  tracks_k <- data %>% filter(pl_id==k) %>% pull(track_id)
+  
+  # Make a list of all playlists those tracks are added to (also_added)
+  also_added <- data %>% filter(track_id %in% tracks_k)
+  
+  # Only keep the playlists added to before addition to k (before_k)
+  before_k <- c()
+  for (track in tracks_k) {
+    
+    # Date the track was added to playlist k k (date_k)
+    date_k <- also_added %>% filter(track_id==track & pl_id==k) %>% pull(added_at)
+    
+    # All the playlists the track was added to before it was added to k
+    before_k_track <- also_added %>% filter(track_id==track & added_at < date_k) %>% pull(pl_id)
+    
+    # Add to complete list of all playlist additions that occurred before addition to k,
+    # aggregated over all tracks that were added to k
+    before_k <- c(before_k, before_k_track)
+  }
+  return(before_k)
+}
+
+# So before_k is for a playlist k, al list of all playlists that tracks were added
+# to before they were added to k.
+# The number of times that a playlist j occurs in this list, is the number of
+# tracks that were added to j before they were added to k.
+```
+
+```{r}
+# Extract the list before_k for all playlists k.
+df_all <- sapply(pl_ids, all_before)
+
+# Make a dataframe, with a row for each combination of k and all of the playlists in 
+# the list before_k.
+df_all <- melt(df_all, level = 1)
+colnames(df_all) <- c("j", "k")
+
+# Use group_by and count to count the number of times j occurs before k.
+# Because the number of rows where k=k & j=j,
+# is the number of times j occurred in the list before_k of k.
+df <- df_all %>% group_by(k) %>% count(j)
+colnames(df)[3] <- "N_jk"
+df <- df %>% ungroup()
+
+# Extract the number of tracks added to j from the "playlists" table.
+df$j <- as.character(df$j)
+playlists$pl_id <- as.character(playlists$pl_id)
+df <- df %>% left_join(playlists, by = c("j" = "pl_id"))
+colnames(df)[4] <- "N_j"
+
+# Extract the number of tracks added to k from the "playlists" table.
+df <- df %>% left_join(playlists, by = c("k" = "pl_id"))
+colnames(df)[5] <- "N_k"
+
+# Calculate the precision, recall, and influence degree.
+df <- df %>% mutate(P_jk = N_jk / N_j)
+df <- df %>% mutate(R_jk = N_jk / N_k)
+df <- df %>% mutate(F_jk = (2 * P_jk * R_jk) / (P_jk + R_jk))
+
+# Of all the playlist combinations not present in df, F_jk = 0.
+```
+
+Save csv
+```{r}
+write.csv(df, "../../gen/data-preparation/input/data_influence.csv", row.names=FALSE)
+```
